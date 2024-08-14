@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 # Third party packages
-from PIL import Image
+from PIL import Image, ImageMath, ImageChops
 
 # From self package
 from .logger import setup_logger, terminate_loggers
@@ -72,11 +72,32 @@ def _generate_background(image: Image, logger: logging.Logger) -> Image:
     return up_scaled_avg
 
 
+def _generate_background_weighted(image: Image, mask: Image, logger: logging.Logger) -> Image:
+    """Generate a background image and returns the result Image object.
+       Weighted scaling."""
+    logger.info("--- Generating background image and storing it in memory...")
+    out_image, _ = _resize_image_weighted(1, image, mask)
+    return out_image.resize(image.size, Image.NEAREST)
+
+
 def _calculate_image_height(image_width: int, image: Image) -> int:
     """Calculate the height of the image based on the specified width."""
     width_percent = (image_width / float(image.size[0]))
     new_height = int((float(image.size[1]) * float(width_percent)))
     return new_height
+
+
+def _resize_image_weighted(target_width: int, image: Image, mask: Image):
+    """Resize image, weighted by alpha coverage."""
+    factor = image.width // target_width
+    multiplied_resized = ImageChops.multiply(image, mask.convert(image.mode)).reduce(factor)
+    mask_resized = mask.reduce(factor)
+    channels = list(multiplied_resized.split())
+    eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
+    normalize = "a if not int(b) else a/(float(b)/255)+0.5"
+    for channel in range(len(channels)):
+        channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
+    return Image.merge(image.mode, channels), mask_resized
 
 
 def _stack_mip_levels(average_bgr: str, miplevels: int, color: Image, origin_width: int, origin_height: int,
@@ -93,6 +114,25 @@ def _stack_mip_levels(average_bgr: str, miplevels: int, color: Image, origin_wid
         img_copy = stack.copy()
         img_copy.paste(to_stack, (0, 0), to_stack)
         stack = img_copy.copy()
+    logger.info(f"--- Saving stack to file: {output_dir}")
+    stack.save(output_dir)
+    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
+
+
+def _stack_mip_levels_weighted(average_bgr: Image, miplevels: int, color: Image, mask: Image, origin_width: int,
+                               origin_height: int, output_dir: str, logger: logging.Logger) -> None:
+    """Stack Mipmap levels on a background Image with alpha integration to generate a single Image. 
+       Weighted scaling."""
+    stack = average_bgr
+    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Beginning the stacking process. Please wait...")
+    for miplevel in range(miplevels - 1):
+        width = 2 ** (miplevel + 1)
+        out_color, out_mask = _resize_image_weighted(width, color, mask)
+        to_stack = out_color.resize((origin_width, origin_height), Image.NEAREST)
+        to_stack_mask = out_mask.resize((origin_width, origin_height), Image.NEAREST)
+        stack.paste(to_stack, (0, 0), to_stack_mask)
+    stack.paste(color, (0, 0), mask)
     logger.info(f"--- Saving stack to file: {output_dir}")
     stack.save(output_dir)
     logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
@@ -146,6 +186,44 @@ def run_mip_flooding(in_texture_color_abs_path: str, in_texture_alpha_abs_path: 
     average_bgr = _generate_background(color, logger)
     color.putalpha(alpha_mask)
     _stack_mip_levels(average_bgr, miplevels, color, color.size[0], color.size[1], out_abs_path, logger)
+    optimized_percentage = os.path.getsize(in_texture_color_abs_path) - os.path.getsize(out_abs_path)
+    optimized_percentage = optimized_percentage * 100 / os.path.getsize(in_texture_color_abs_path)
+    logger.info(f"--- Final image is {optimized_percentage:,.2f}% smaller in disk.")
+    _log_and_terminate(logger, f"- Elapsed time: {time.perf_counter() - start_time} seconds.", logging.INFO)
+
+
+def run_mip_flooding_weighted(in_texture_color_abs_path: str, in_texture_alpha_abs_path: str, out_abs_path: str) -> None:
+    """
+    Perform Mipmap Flooding (weighted) on input color and alpha textures to optimize for disk storage.
+
+    This function processes a pair of input textures (color and alpha). It generates Mipmap levels, starting from the
+    original resolution and gradually downsizing to a 1x1 Mipmap. The function then assembles these Mipmaps, layer by
+    layer, reintegrating the alpha channel, until it reaches the original resolution.
+
+    Args:
+        in_texture_color_abs_path (str): The absolute path to the color texture image.
+        in_texture_alpha_abs_path (str): The absolute path to the alpha texture image.
+        out_abs_path (str): The absolute path for the output image.
+
+    Example:
+        run_mip_flooding_weighted('input_color.png', 'input_alpha.png', 'output_texture.png')
+    """
+    start_time = time.perf_counter()
+    out_directory = get_output_directory(out_abs_path)
+    out_filename = get_output_filename(out_abs_path)
+    if out_directory is None:
+        logging.error("Specified output directory does not exist. Skipping...")
+        return
+    logger = _make_logger_for_file(out_directory, out_filename)
+    logger.info("- Start image processing...")
+    color, alpha_mask = _open_image_inputs(in_texture_color_abs_path, in_texture_alpha_abs_path, logger)
+    validation_log = _validate_inputs(color, alpha_mask, logger, in_texture_color_abs_path)
+    if validation_log is not None:
+        _log_and_terminate(logger, validation_log)
+        return
+    miplevels = _get_mip_levels(color, logger)
+    average_bgr = _generate_background_weighted(color, alpha_mask, logger)
+    _stack_mip_levels_weighted(average_bgr, miplevels, color, alpha_mask, color.size[0], color.size[1], out_abs_path, logger)
     optimized_percentage = os.path.getsize(in_texture_color_abs_path) - os.path.getsize(out_abs_path)
     optimized_percentage = optimized_percentage * 100 / os.path.getsize(in_texture_color_abs_path)
     logger.info(f"--- Final image is {optimized_percentage:,.2f}% smaller in disk.")
