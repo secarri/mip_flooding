@@ -8,6 +8,7 @@ from typing import List, Optional
 
 # Third party packages
 from PIL import Image, ImageMath, ImageChops
+import numpy as np
 
 # From self package
 from .logger import setup_logger, terminate_loggers
@@ -162,6 +163,47 @@ def _stack_mip_levels_weighted_walk(miplevels: int, color: Image, mask: Image, o
     logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
 
 
+def _resize_image_weighted_np(target_width: int, image_array: np.array, mask_array: np.array):
+    """Resize image, weighted by alpha coverage."""
+    factor = image_array.shape[0] // target_width
+    image_mult = image_array * mask_array[:, :, np.newaxis]
+    channel_count = image_array.shape[2]
+    channels = []
+    # resize as separate 32 bit channels (Pillow does not support multichannel > 8 bit)
+    for channel in range(channel_count):
+        channels.append(Image.fromarray(image_mult[:, :, channel], "F").reduce(factor))
+    mask_resized = Image.fromarray(mask_array, "F").reduce(factor)
+    image_resized_array = np.stack(channels, axis=2, dtype=np.float32)
+    mask_resized_array = np.array(mask_resized, dtype=np.float32)
+    mask_resized_array_safe = mask_resized_array.copy()
+    mask_resized_array_safe[mask_resized_array_safe == 0] = 1
+    return image_resized_array / mask_resized_array_safe[:, :, np.newaxis], mask_resized_array
+
+
+def _stack_mip_levels_weighted_walk_np(miplevels: int, color: Image, mask: Image, origin_width: int, origin_height: int,
+                                    output_dir: str, logger: logging.Logger) -> None:
+    """ Stack Mipmap levels on a background Image with alpha integration to generate a single Image.
+        Weighted, faster, uses more RAM"""
+    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Beginning the stacking process. Please wait...")
+    mips = [np.array(color, dtype=np.float32)]
+    masks = [np.array(mask, dtype=np.float32)/255]
+    for miplevel in range(miplevels - 1, -1, -1):
+        width = 2 ** miplevel
+        mip_temp, mask_temp = _resize_image_weighted_np(width, mips[-1], masks[-1])
+        mips.append(mip_temp)
+        masks.append(mask_temp)
+
+    stack = Image.fromarray(mips[-1].astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST)
+    for miplevel in range(miplevels - 1, -1, -1):
+        stack.paste(Image.fromarray((mips[miplevel]+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST),
+                    (0, 0),
+                    Image.fromarray((masks[miplevel]*255+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST))
+    logger.info(f"--- Saving stack to file: {output_dir}")
+    stack.save(output_dir)
+    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
+
+
 def _log_and_terminate(logger, message, level=logging.ERROR):
     """Log the given 'message' at the specified 'level' using the 'logger', and then terminate the logger."""
     logger.log(level=level, msg=message)
@@ -286,6 +328,43 @@ def run_mip_flooding_weighted_walk(in_texture_color_abs_path: str, in_texture_al
         return
     miplevels = _get_mip_levels(color, logger)
     _stack_mip_levels_weighted_walk(miplevels, color, alpha_mask, color.size[0], color.size[1], out_abs_path, logger)
+    optimized_percentage = os.path.getsize(in_texture_color_abs_path) - os.path.getsize(out_abs_path)
+    optimized_percentage = optimized_percentage * 100 / os.path.getsize(in_texture_color_abs_path)
+    logger.info(f"--- Final image is {optimized_percentage:,.2f}% smaller in disk.")
+    _log_and_terminate(logger, f"- Elapsed time: {time.perf_counter() - start_time} seconds.", logging.INFO)
+
+def run_mip_flooding_weighted_walk_np(in_texture_color_abs_path: str, in_texture_alpha_abs_path: str, out_abs_path: str) -> None:
+    """
+    Perform Mipmap Flooding (weighted) on input color and alpha textures to optimize for disk storage.
+    Variant that is computationally faster, at the cost of more RAM utilization.
+
+    This function processes a pair of input textures (color and alpha). It generates Mipmap levels, starting from the
+    original resolution and gradually downsizing to a 1x1 Mipmap. The function then assembles these Mipmaps, layer by
+    layer, reintegrating the alpha channel, until it reaches the original resolution.
+
+    Args:
+        in_texture_color_abs_path (str): The absolute path to the color texture image.
+        in_texture_alpha_abs_path (str): The absolute path to the alpha texture image.
+        out_abs_path (str): The absolute path for the output image.
+
+    Example:
+        run_mip_flooding_weighted('input_color.png', 'input_alpha.png', 'output_texture.png')
+    """
+    start_time = time.perf_counter()
+    out_directory = get_output_directory(out_abs_path)
+    out_filename = get_output_filename(out_abs_path)
+    if out_directory is None:
+        logging.error("Specified output directory does not exist. Skipping...")
+        return
+    logger = _make_logger_for_file(out_directory, out_filename)
+    logger.info("- Start image processing...")
+    color, alpha_mask = _open_image_inputs(in_texture_color_abs_path, in_texture_alpha_abs_path, logger)
+    validation_log = _validate_inputs(color, alpha_mask, logger, in_texture_color_abs_path)
+    if validation_log is not None:
+        _log_and_terminate(logger, validation_log)
+        return
+    miplevels = _get_mip_levels(color, logger)
+    _stack_mip_levels_weighted_walk_np(miplevels, color, alpha_mask, color.size[0], color.size[1], out_abs_path, logger)
     optimized_percentage = os.path.getsize(in_texture_color_abs_path) - os.path.getsize(out_abs_path)
     optimized_percentage = optimized_percentage * 100 / os.path.getsize(in_texture_color_abs_path)
     logger.info(f"--- Final image is {optimized_percentage:,.2f}% smaller in disk.")
