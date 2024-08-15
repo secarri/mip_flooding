@@ -156,13 +156,13 @@ def run_mip_flooding(in_texture_color_abs_path: str, in_texture_alpha_abs_path: 
 def _resize_image_weighted(target_width: int, image: Image, mask: Image):
     """Resize image, weighted by alpha coverage."""
     factor = image.width // target_width
-    multiplied_resized = ImageChops.multiply(image, mask.convert(image.mode)).reduce(factor)
     mask_resized = mask.reduce(factor)
-    channels = list(multiplied_resized.split())
     eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
     normalize = "a if not int(b) else a/(float(b)/255)+0.5"
+    channels = list(image.split())
     for channel in range(len(channels)):
-        channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
+        tmp = ImageChops.multiply(channels[channel], mask).reduce(factor)
+        channels[channel] = eval_func(normalize, a=tmp, b=mask_resized).convert("L")
     return Image.merge(image.mode, channels), mask_resized
 
 
