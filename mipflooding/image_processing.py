@@ -166,6 +166,18 @@ def _resize_image_weighted(target_width: int, image: Image, mask: Image):
     return Image.merge(image.mode, channels), mask_resized
 
 
+def _resize_image_weighted_premultiplied(target_width: int, premultiplied_image: Image, mask: Image):
+    """Resize image, weighted by alpha coverage."""
+    factor = premultiplied_image.width // target_width
+    mask_resized = mask.reduce(factor)
+    eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
+    normalize = "a if not int(b) else a/(float(b)/255)+0.5"
+    channels = list(premultiplied_image.reduce(factor).split())
+    for channel in range(len(channels)):
+        channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
+    return Image.merge(premultiplied_image.mode, channels), mask_resized
+
+
 def _generate_background_weighted(image: Image, mask: Image, logger: logging.Logger) -> Image:
     """Generate a background image and returns the result Image object.
        Weighted scaling."""
@@ -180,10 +192,15 @@ def _stack_mip_levels_weighted(average_bgr: Image, miplevels: int, color: Image,
        Weighted scaling."""
     stack = average_bgr
     logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Pre-multiplying image with coverage mask")
+    channels = list(color.split())
+    for channel in range(len(channels)):
+        channels[channel] = ImageChops.multiply(channels[channel], mask)
+    color_premultiplied = Image.merge(color.mode, channels)
     logger.info(f"--- Beginning the stacking process. Please wait...")
     for miplevel in range(miplevels - 1):
         width = 2 ** (miplevel + 1)
-        out_color, out_mask = _resize_image_weighted(width, color, mask)
+        out_color, out_mask = _resize_image_weighted_premultiplied(width, color_premultiplied, mask)
         to_stack = out_color.resize((origin_width, origin_height), Image.NEAREST)
         to_stack_mask = out_mask.resize((origin_width, origin_height), Image.NEAREST)
         stack.paste(to_stack, (0, 0), to_stack_mask)
@@ -237,6 +254,7 @@ def _stack_mip_levels_weighted_walk(miplevels: int, color: Image, mask: Image, o
         Weighted, faster, uses more RAM, some issues with color precision (likely cumulative 8 bit rounding errors)"""
     logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
     logger.info(f"--- Beginning the stacking process. Please wait...")
+
     mips = [color]
     masks = [mask]
     for miplevel in range(miplevels - 1, -1, -1):
