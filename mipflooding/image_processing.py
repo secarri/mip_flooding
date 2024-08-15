@@ -169,10 +169,11 @@ def _resize_image_weighted(target_width: int, image: Image, mask: Image):
 def _resize_image_weighted_premultiplied(target_width: int, premultiplied_image: Image, mask: Image):
     """Resize image, weighted by alpha coverage."""
     factor = premultiplied_image.width // target_width
+    image_resized = premultiplied_image.reduce(factor)
     mask_resized = mask.reduce(factor)
     eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
     normalize = "a if not int(b) else a/(float(b)/255)+0.5"
-    channels = list(premultiplied_image.reduce(factor).split())
+    channels = list(image_resized.split())
     for channel in range(len(channels)):
         channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
     return Image.merge(premultiplied_image.mode, channels), mask_resized
