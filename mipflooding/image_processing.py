@@ -73,32 +73,11 @@ def _generate_background(image: Image, logger: logging.Logger) -> Image:
     return up_scaled_avg
 
 
-def _generate_background_weighted(image: Image, mask: Image, logger: logging.Logger) -> Image:
-    """Generate a background image and returns the result Image object.
-       Weighted scaling."""
-    logger.info("--- Generating background image and storing it in memory...")
-    out_image, _ = _resize_image_weighted(1, image, mask)
-    return out_image.resize(image.size, Image.NEAREST)
-
-
 def _calculate_image_height(image_width: int, image: Image) -> int:
     """Calculate the height of the image based on the specified width."""
     width_percent = (image_width / float(image.size[0]))
     new_height = int((float(image.size[1]) * float(width_percent)))
     return new_height
-
-
-def _resize_image_weighted(target_width: int, image: Image, mask: Image):
-    """Resize image, weighted by alpha coverage."""
-    factor = image.width // target_width
-    multiplied_resized = ImageChops.multiply(image, mask.convert(image.mode)).reduce(factor)
-    mask_resized = mask.reduce(factor)
-    channels = list(multiplied_resized.split())
-    eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
-    normalize = "a if not int(b) else a/(float(b)/255)+0.5"
-    for channel in range(len(channels)):
-        channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
-    return Image.merge(image.mode, channels), mask_resized
 
 
 def _stack_mip_levels(average_bgr: str, miplevels: int, color: Image, origin_width: int, origin_height: int,
@@ -115,90 +94,6 @@ def _stack_mip_levels(average_bgr: str, miplevels: int, color: Image, origin_wid
         img_copy = stack.copy()
         img_copy.paste(to_stack, (0, 0), to_stack)
         stack = img_copy.copy()
-    logger.info(f"--- Saving stack to file: {output_dir}")
-    stack.save(output_dir)
-    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
-
-
-def _stack_mip_levels_weighted(average_bgr: Image, miplevels: int, color: Image, mask: Image, origin_width: int,
-                               origin_height: int, output_dir: str, logger: logging.Logger) -> None:
-    """Stack Mipmap levels on a background Image with alpha integration to generate a single Image. 
-       Weighted scaling."""
-    stack = average_bgr
-    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
-    logger.info(f"--- Beginning the stacking process. Please wait...")
-    for miplevel in range(miplevels - 1):
-        width = 2 ** (miplevel + 1)
-        out_color, out_mask = _resize_image_weighted(width, color, mask)
-        to_stack = out_color.resize((origin_width, origin_height), Image.NEAREST)
-        to_stack_mask = out_mask.resize((origin_width, origin_height), Image.NEAREST)
-        stack.paste(to_stack, (0, 0), to_stack_mask)
-    stack.paste(color, (0, 0), mask)
-    logger.info(f"--- Saving stack to file: {output_dir}")
-    stack.save(output_dir)
-    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
-
-
-def _stack_mip_levels_weighted_walk(miplevels: int, color: Image, mask: Image, origin_width: int, origin_height: int,
-                                    output_dir: str, logger: logging.Logger) -> None:
-    """ Stack Mipmap levels on a background Image with alpha integration to generate a single Image.
-        Weighted, faster, uses more RAM, some issues with color precision (likely cumulative 8 bit rounding errors)"""
-    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
-    logger.info(f"--- Beginning the stacking process. Please wait...")
-    mips = [color]
-    masks = [mask]
-    for miplevel in range(miplevels - 1, -1, -1):
-        width = 2 ** miplevel
-        mip_temp, mask_temp = _resize_image_weighted(width, mips[-1], masks[-1])
-        mips.append(mip_temp)
-        masks.append(mask_temp)
-
-    stack = _generate_background_weighted(color, mask, logger)
-    for miplevel in range(miplevels - 1, -1, -1):
-        stack.paste(mips[miplevel].resize((origin_width, origin_height), Image.NEAREST),
-                    (0, 0),
-                    masks[miplevel].resize((origin_width, origin_height), Image.NEAREST))
-    logger.info(f"--- Saving stack to file: {output_dir}")
-    stack.save(output_dir)
-    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
-
-
-def _resize_image_weighted_np(target_width: int, image_array: np.array, mask_array: np.array):
-    """Resize image, weighted by alpha coverage."""
-    factor = image_array.shape[0] // target_width
-    image_mult = image_array * mask_array[:, :, np.newaxis]
-    channel_count = image_array.shape[2]
-    channels = []
-    # resize as separate 32 bit channels (Pillow does not support multichannel > 8 bit)
-    for channel in range(channel_count):
-        channels.append(Image.fromarray(image_mult[:, :, channel], "F").reduce(factor))
-    mask_resized = Image.fromarray(mask_array, "F").reduce(factor)
-    image_resized_array = np.stack(channels, axis=2, dtype=np.float32)
-    mask_resized_array = np.array(mask_resized, dtype=np.float32)
-    mask_resized_array_safe = mask_resized_array.copy()
-    mask_resized_array_safe[mask_resized_array_safe == 0] = 1
-    return image_resized_array / mask_resized_array_safe[:, :, np.newaxis], mask_resized_array
-
-
-def _stack_mip_levels_weighted_walk_np(miplevels: int, color: Image, mask: Image, origin_width: int, origin_height: int,
-                                    output_dir: str, logger: logging.Logger) -> None:
-    """ Stack Mipmap levels on a background Image with alpha integration to generate a single Image.
-        Weighted, faster, uses more RAM"""
-    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
-    logger.info(f"--- Beginning the stacking process. Please wait...")
-    mips = [np.array(color, dtype=np.float32)]
-    masks = [np.array(mask, dtype=np.float32)/255]
-    for miplevel in range(miplevels - 1, -1, -1):
-        width = 2 ** miplevel
-        mip_temp, mask_temp = _resize_image_weighted_np(width, mips[-1], masks[-1])
-        mips.append(mip_temp)
-        masks.append(mask_temp)
-
-    stack = Image.fromarray(mips[-1].astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST)
-    for miplevel in range(miplevels - 1, -1, -1):
-        stack.paste(Image.fromarray((mips[miplevel]+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST),
-                    (0, 0),
-                    Image.fromarray((masks[miplevel]*255+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST))
     logger.info(f"--- Saving stack to file: {output_dir}")
     stack.save(output_dir)
     logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
@@ -258,6 +153,46 @@ def run_mip_flooding(in_texture_color_abs_path: str, in_texture_alpha_abs_path: 
     _log_and_terminate(logger, f"- Elapsed time: {time.perf_counter() - start_time} seconds.", logging.INFO)
 
 
+def _resize_image_weighted(target_width: int, image: Image, mask: Image):
+    """Resize image, weighted by alpha coverage."""
+    factor = image.width // target_width
+    multiplied_resized = ImageChops.multiply(image, mask.convert(image.mode)).reduce(factor)
+    mask_resized = mask.reduce(factor)
+    channels = list(multiplied_resized.split())
+    eval_func = ImageMath.unsafe_eval if 'unsafe_eval' in dir(ImageMath) else ImageMath.eval
+    normalize = "a if not int(b) else a/(float(b)/255)+0.5"
+    for channel in range(len(channels)):
+        channels[channel] = eval_func(normalize, a=channels[channel], b=mask_resized).convert("L")
+    return Image.merge(image.mode, channels), mask_resized
+
+
+def _generate_background_weighted(image: Image, mask: Image, logger: logging.Logger) -> Image:
+    """Generate a background image and returns the result Image object.
+       Weighted scaling."""
+    logger.info("--- Generating background image and storing it in memory...")
+    out_image, _ = _resize_image_weighted(1, image, mask)
+    return out_image.resize(image.size, Image.NEAREST)
+
+
+def _stack_mip_levels_weighted(average_bgr: Image, miplevels: int, color: Image, mask: Image, origin_width: int,
+                               origin_height: int, output_dir: str, logger: logging.Logger) -> None:
+    """Stack Mipmap levels on a background Image with alpha integration to generate a single Image. 
+       Weighted scaling."""
+    stack = average_bgr
+    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Beginning the stacking process. Please wait...")
+    for miplevel in range(miplevels - 1):
+        width = 2 ** (miplevel + 1)
+        out_color, out_mask = _resize_image_weighted(width, color, mask)
+        to_stack = out_color.resize((origin_width, origin_height), Image.NEAREST)
+        to_stack_mask = out_mask.resize((origin_width, origin_height), Image.NEAREST)
+        stack.paste(to_stack, (0, 0), to_stack_mask)
+    stack.paste(color, (0, 0), mask)
+    logger.info(f"--- Saving stack to file: {output_dir}")
+    stack.save(output_dir)
+    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
+
+
 def run_mip_flooding_weighted(in_texture_color_abs_path: str, in_texture_alpha_abs_path: str, out_abs_path: str) -> None:
     """
     Perform Mipmap Flooding (weighted) on input color and alpha textures to optimize for disk storage.
@@ -296,6 +231,30 @@ def run_mip_flooding_weighted(in_texture_color_abs_path: str, in_texture_alpha_a
     _log_and_terminate(logger, f"- Elapsed time: {time.perf_counter() - start_time} seconds.", logging.INFO)
 
 
+def _stack_mip_levels_weighted_walk(miplevels: int, color: Image, mask: Image, origin_width: int, origin_height: int,
+                                    output_dir: str, logger: logging.Logger) -> None:
+    """ Stack Mipmap levels on a background Image with alpha integration to generate a single Image.
+        Weighted, faster, uses more RAM, some issues with color precision (likely cumulative 8 bit rounding errors)"""
+    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Beginning the stacking process. Please wait...")
+    mips = [color]
+    masks = [mask]
+    for miplevel in range(miplevels - 1, -1, -1):
+        width = 2 ** miplevel
+        mip_temp, mask_temp = _resize_image_weighted(width, mips[-1], masks[-1])
+        mips.append(mip_temp)
+        masks.append(mask_temp)
+
+    stack = _generate_background_weighted(color, mask, logger)
+    for miplevel in range(miplevels - 1, -1, -1):
+        stack.paste(mips[miplevel].resize((origin_width, origin_height), Image.NEAREST),
+                    (0, 0),
+                    masks[miplevel].resize((origin_width, origin_height), Image.NEAREST))
+    logger.info(f"--- Saving stack to file: {output_dir}")
+    stack.save(output_dir)
+    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
+
+
 def run_mip_flooding_weighted_walk(in_texture_color_abs_path: str, in_texture_alpha_abs_path: str, out_abs_path: str) -> None:
     """
     Perform Mipmap Flooding (weighted) on input color and alpha textures to optimize for disk storage.
@@ -332,6 +291,48 @@ def run_mip_flooding_weighted_walk(in_texture_color_abs_path: str, in_texture_al
     optimized_percentage = optimized_percentage * 100 / os.path.getsize(in_texture_color_abs_path)
     logger.info(f"--- Final image is {optimized_percentage:,.2f}% smaller in disk.")
     _log_and_terminate(logger, f"- Elapsed time: {time.perf_counter() - start_time} seconds.", logging.INFO)
+
+
+def _resize_image_weighted_np(target_width: int, image_array: np.array, mask_array: np.array):
+    """Resize image, weighted by alpha coverage."""
+    factor = image_array.shape[0] // target_width
+    image_mult = image_array * mask_array[:, :, np.newaxis]
+    channel_count = image_array.shape[2]
+    channels = []
+    # resize as separate 32 bit channels (Pillow does not support multichannel > 8 bit)
+    for channel in range(channel_count):
+        channels.append(Image.fromarray(image_mult[:, :, channel], "F").reduce(factor))
+    mask_resized = Image.fromarray(mask_array, "F").reduce(factor)
+    image_resized_array = np.stack(channels, axis=2, dtype=np.float32)
+    mask_resized_array = np.array(mask_resized, dtype=np.float32)
+    mask_resized_array_safe = mask_resized_array.copy()
+    mask_resized_array_safe[mask_resized_array_safe == 0] = 1
+    return image_resized_array / mask_resized_array_safe[:, :, np.newaxis], mask_resized_array
+
+
+def _stack_mip_levels_weighted_walk_np(miplevels: int, color: Image, mask: Image, origin_width: int, origin_height: int,
+                                       output_dir: str, logger: logging.Logger) -> None:
+    """ Stack Mipmap levels on a background Image with alpha integration to generate a single Image.
+        Weighted, faster, uses more RAM"""
+    logger.info(f"--- Storing original resolution in memory: {origin_width, origin_height}")
+    logger.info(f"--- Beginning the stacking process. Please wait...")
+    mips = [np.array(color, dtype=np.float32)]
+    masks = [np.array(mask, dtype=np.float32)/255]
+    for miplevel in range(miplevels - 1, -1, -1):
+        width = 2 ** miplevel
+        mip_temp, mask_temp = _resize_image_weighted_np(width, mips[-1], masks[-1])
+        mips.append(mip_temp)
+        masks.append(mask_temp)
+
+    stack = Image.fromarray(mips[-1].astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST)
+    for miplevel in range(miplevels - 1, -1, -1):
+        stack.paste(Image.fromarray((mips[miplevel]+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST),
+                    (0, 0),
+                    Image.fromarray((masks[miplevel]*255+0.5).astype(np.uint8)).resize((origin_width, origin_height), Image.NEAREST))
+    logger.info(f"--- Saving stack to file: {output_dir}")
+    stack.save(output_dir)
+    logger.info(f"--- Output disk size: {os.path.getsize(output_dir) / float(1 << 20):,.2f} MB")
+
 
 def run_mip_flooding_weighted_walk_np(in_texture_color_abs_path: str, in_texture_alpha_abs_path: str, out_abs_path: str) -> None:
     """
