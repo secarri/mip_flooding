@@ -17,7 +17,7 @@ Python implementation of the "mip flooding" algorithm used in God of War. This a
 ## Prerequisites
 
 -   [Python 3.10](https://www.python.org/downloads/release/python-3100/) or a Digital Content Creation (DCC) application with Python support.
--   The Pillow Python library. You can install it using `pip install Pillow`.
+-   The pythonnet Python library. You can install it using `pip install pythonnet`.
 
 ## Installation
 
@@ -32,9 +32,10 @@ import os
 import time
 from pathlib import Path
 
-from mipflooding import batch_processing, image_processing
+from wrapper.image_format import ImageFormat
+from wrapper import batch_processing, image_processing
 
-main_path = r"C:\Users\Sergi\Desktop\TestFlooding\examples_article"
+main_path = r"C:\Users\YourUserName\Desktop\TestFlooding\examples_article"
 output_dir = os.path.join(main_path, "output")
 
 
@@ -48,7 +49,7 @@ def batch_mip_flood_slow(files):
         mask = file.replace("_C", "_A")
         file_name = file.replace("_C", "_MIPF_C")
         output = os.path.join(output_dir, Path(file_name).name.__str__())
-        image_processing.run_mip_flooding(file, mask, output)
+        image_processing.run_mip_flooding(file, mask, output, ImageFormat.PNG)
 
 
 if __name__ == "__main__":
