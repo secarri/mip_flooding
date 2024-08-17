@@ -3,11 +3,12 @@
 [![Sergi Carrion](https://img.shields.io/badge/secarri-open%20source-blueviolet.svg)](https://es.linkedin.com/in/secarri)
 [![Sergi Carrion](https://img.shields.io/badge/read-article-blue.svg)](https://www.artstation.com/blogs/se_carri/XOBq/the-god-of-war-texture-optimization-algorithm-mip-flooding)
 
-Python implementation of the "mip flooding" algorithm used in God of War. This algorithm was presented in the 2019 GDC talk and optimizes game textures sizes on disk.
+C# implementation of the "mip flooding" algorithm used in God of War. This algorithm was presented in the 2019 GDC talk and optimizes game textures sizes on disk.
 
+It is called from Python, making it easily accessible from any DCC package that supports Python.
 <p align="center">
 
-  <img src="examples/mip_flood_example.gif" width="300" height="300" alt="Texture before and after the mip flooding">
+  <img src="docs/examples/mip_flood_example.gif" width="300" height="300" alt="Texture before and after the mip flooding">
 
 </p>
 
@@ -16,14 +17,14 @@ Python implementation of the "mip flooding" algorithm used in God of War. This a
 
 ## Prerequisites
 
--   [Python 3.10](https://www.python.org/downloads/release/python-3100/) or a Digital Content Creation (DCC) application with Python support.
--   The pythonnet Python library. You can install it using `pip install pythonnet`.
+-   Any version of Python that has `pythonnet` installed or a Digital Content Creation (DCC) application with Python support.
+-   The `pythonnet` Python library. You can install it using `pip install pythonnet`.
 
 ## Installation
 
 1. Download [the latest version from main]((https://github.com/secarri/mip_flooding)) from GitHub!
 2. Place the package in your preferred location (whether within your Python libraries or a custom directory, with the option of using `sys.path.append` or any other approach).
-3. From your preferred DCC package, import the `image_processing` module form the `mipflooding` package.
+3. From your preferred DCC package, import the `image_processing` module form the `wrapper` package.
 
 ## Code sample
 
@@ -32,8 +33,7 @@ import os
 import time
 from pathlib import Path
 
-from wrapper.image_format import ImageFormat
-from wrapper import batch_processing, image_processing
+from python.wrapper.image_format import ImageFormat, batch_processing, image_processing
 
 main_path = r"C:\Users\YourUserName\Desktop\TestFlooding\examples_article"
 output_dir = os.path.join(main_path, "output")
@@ -84,12 +84,10 @@ if __name__ == "__main__":
 
 <p align="center">
 
-  <img src="examples/batch_example.gif" width="700" alt="Texture before and after the mip flooding">
+  <img src="docs/examples/batch_example.gif" width="700" alt="Texture before and after the mip flooding">
 
 </p>
 
 ## What's next?
-
-* Release a version with its own setup installer. 
+ 
 * Support for Packed Textures with Alpha Channel.
-* Selective Mip Flooding for Specific Channels.

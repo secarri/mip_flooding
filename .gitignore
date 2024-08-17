@@ -62,6 +62,6 @@ venv.bak/
 # Custom C# dependencies
 _*
 .vs
-bin
 tests
 obj
+*.pdb

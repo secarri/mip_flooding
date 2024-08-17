@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -78,12 +79,17 @@ namespace ImageProcessingLibrary
 
             // Generate the background
             Bitmap background_img = ImageProcessor.GenerateAverageColorImage(color);
-            string outAbsBackground = outAbsPath.Replace(".jpg", "_avgBckgr.jpg");
 
             // Run stacking process
             StackMipLevels(background_img, getMipLevels, color, alpha, colorWidth, colorHeight).Save(outAbsPath, outFormat);
             stopwatch.Stop();
             TimeSpan elapsedTime = stopwatch.Elapsed;
+
+            // Calculate improvement
+            long oldFileSize = FileUtilities.GetFileSize(inTexColorAbsPath);
+            long newFileSize = FileUtilities.GetFileSize(outAbsPath);
+            long optimizedPercentage = (newFileSize - oldFileSize) * 100 / oldFileSize;
+            Console.WriteLine($"--- Final image is {optimizedPercentage}% smaller in disk.");
             Console.WriteLine($"- Mip Flooding Time: {elapsedTime.TotalSeconds:F6} seconds.");
         }
     }

@@ -1,4 +1,4 @@
-from dll_loader import *
+from python.bin.loader import *
 import image_format as imgf
 
 
@@ -18,10 +18,10 @@ def run_mip_flooding(color_path: str, mask_path: str, output_path: str, format: 
 
 
 if __name__ == "__main__":
-    wrapper_path = Path(__file__).parent.parent
+    wrapper_path = Path(__file__).parent.parent.parent
     print(wrapper_path)
-    color = wrapper_path / Path("source\\MipFlooding\\tests\\Albedo_4K__wfdgcg0p2.png")
-    mask = wrapper_path / Path("source\\MipFlooding\\tests\\Opacity_4K__wfdgcg0p2.png")
-    out = wrapper_path / Path("source\\MipFlooding\\tests\\outs\\output.png")
+    color = wrapper_path / Path("src\\MipFlooding\\tests\\bug_color.png")
+    mask = wrapper_path / Path("src\\MipFlooding\\tests\\bug_opacity.png")
+    out = wrapper_path / Path("src\\MipFlooding\\tests\\outs\\output_bug.png")
 
     run_mip_flooding(str(color), str(mask), str(out), imgf.ImageFormat.PNG)
