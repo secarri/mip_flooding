@@ -23,9 +23,11 @@ def _open_image_inputs(color: str, alpha: str, logger: logging.Logger) -> List:
     if not alpha:
         alpha = str(None)
     color_map = None if not Path(color).exists() else Image.open(color)
-    alpha_mask = None if not Path(alpha).exists() else Image.open(alpha).convert('L')
     if color_map:
         logger.info(f"--- File disk size: {os.path.getsize(color) / float(1 << 20):,.2f} MB")
+    alpha_mask = None if not Path(alpha).exists() else Image.open(alpha).split()[0]
+    if alpha_mask.mode != "L":
+        alpha_mask = alpha_mask.convert("L")
     return [color_map, alpha_mask]
 
 
