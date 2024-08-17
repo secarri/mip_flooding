@@ -22,10 +22,10 @@ The C# ImageProcessingLibrary is called from Python, making it easily accessible
 
 ## Installation
 
-1. Download [the latest version from main]((https://github.com/secarri/mip_flooding)) from GitHub!
-2. From the python, copy the `mipflooding` package.
-2. Place the package in your preferred location (whether within your Python libraries or a custom directory, with the option of using `sys.path.append` or any other approach).
-3. From your preferred DCC package, import the `image_processing` module form the `wrapper` package.
+1. Visit the [latest release page](https://github.com/secarri/MipFlooding/releases)!
+2. Download the `mipflooding.zip` package from the bottom of the release page.
+3. Unzip the `mipflooding.zip` file and place the `mipflooding` package in your preferred location. You can either add it to your Python libraries or place it in a custom directory and update your `sys.path` accordingly.
+4. From your preferred DCC package, import the `image_processing` module form the `wrapper` package.
 
 ## Code sample
 
