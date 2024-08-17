@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net4.7.2</TargetFramework>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+	<OutputPath>..\..\python\mipflooding\bin\</OutputPath>
+  </PropertyGroup>
+
+</Project>

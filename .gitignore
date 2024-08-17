@@ -59,5 +59,9 @@ venv.bak/
 # PyCharm
 .idea/
 
-# Custom
+# Custom C# dependencies
 _*
+.vs
+tests
+obj
+*.pdb

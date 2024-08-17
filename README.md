@@ -3,11 +3,12 @@
 [![Sergi Carrion](https://img.shields.io/badge/secarri-open%20source-blueviolet.svg)](https://es.linkedin.com/in/secarri)
 [![Sergi Carrion](https://img.shields.io/badge/read-article-blue.svg)](https://www.artstation.com/blogs/se_carri/XOBq/the-god-of-war-texture-optimization-algorithm-mip-flooding)
 
-Python implementation of the "mip flooding" algorithm used in God of War. This algorithm was presented in the 2019 GDC talk and optimizes game textures sizes on disk.
+C# and Python implementation of the "mip flooding" algorithm used in God of War. This algorithm was presented in the 2019 GDC talk and optimizes game textures sizes on disk.
 
+The C# ImageProcessingLibrary is called from Python, making it easily accessible from any DCC package that supports Python.
 <p align="center">
 
-  <img src="examples/mip_flood_example.gif" width="300" height="300" alt="Texture before and after the mip flooding">
+  <img src="docs/examples/mip_flood_example.gif" width="300" height="300" alt="Texture before and after the mip flooding">
 
 </p>
 
@@ -16,14 +17,15 @@ Python implementation of the "mip flooding" algorithm used in God of War. This a
 
 ## Prerequisites
 
--   [Python 3.10](https://www.python.org/downloads/release/python-3100/) or a Digital Content Creation (DCC) application with Python support.
--   The Pillow Python library. You can install it using `pip install Pillow`.
+-   Any version of Python that has `pythonnet` installed or a Digital Content Creation (DCC) application with Python support.
+-   The `pythonnet` Python library. You can install it using `pip install pythonnet`.
 
 ## Installation
 
 1. Download [the latest version from main]((https://github.com/secarri/mip_flooding)) from GitHub!
+2. From the python, copy the `mipflooding` package.
 2. Place the package in your preferred location (whether within your Python libraries or a custom directory, with the option of using `sys.path.append` or any other approach).
-3. From your preferred DCC package, import the `image_processing` module form the `mipflooding` package.
+3. From your preferred DCC package, import the `image_processing` module form the `wrapper` package.
 
 ## Code sample
 
@@ -32,10 +34,18 @@ import os
 import time
 from pathlib import Path
 
-from mipflooding import batch_processing, image_processing
+from mipflooding.wrapper import image_processing
+from mipflooding.wrapper import batch_processing
 
-main_path = r"C:\Users\Sergi\Desktop\TestFlooding\examples_article"
-output_dir = os.path.join(main_path, "output")
+# Variables for single thread test
+wrapper_path = Path(__file__).parent
+color = wrapper_path / Path("src\\MipFlooding\\tests\\book_debri_tall_C.png")
+mask = wrapper_path / Path("src\\MipFlooding\\tests\\book_debri_tall_A.png")
+out = wrapper_path / Path("src\\MipFlooding\\tests\\outs\\output_bug.png")
+
+# Variables for multi thread test
+directory = wrapper_path / Path("src\\MipFlooding\\tests")
+output_dir = wrapper_path / Path("src\\MipFlooding\\tests\\outs")
 
 
 def get_files(path, pattern="_C"):
@@ -43,20 +53,26 @@ def get_files(path, pattern="_C"):
     return [os.path.join(path, file) for file in files if pattern in file]
 
 
-def batch_mip_flood_slow(files):
-    for file in files:
-        mask = file.replace("_C", "_A")
-        file_name = file.replace("_C", "_MIPF_C")
-        output = os.path.join(output_dir, Path(file_name).name.__str__())
-        image_processing.run_mip_flooding(file, mask, output)
+def run_single_test():
+    start_time = time.perf_counter()
+    image_processing.run_mip_flooding(str(color), str(mask), str(out))
+    end_time = time.perf_counter()
+    print(f"Single thread time: {end_time - start_time:,.2f} sec.")
+
+
+def run_multi_test():
+    start_time = time.perf_counter()
+    batch_processing.run_batch_mip_flood(files=get_files(directory), output_dir=output_dir, max_workers=4)
+    end_time = time.perf_counter()
+    print(f"Multi thread time: {end_time - start_time:,.2f} sec.")
 
 
 if __name__ == "__main__":
-    start_time = time.perf_counter()
-    # batch_mip_flood_slow(get_files(main_path))
-    batch_processing.run_batch_mip_flood(get_files(main_path), output_dir)
-    end_time = time.perf_counter()
-    print(f"Elapsed time: {end_time - start_time:,.2f} sec.")
+    # Single Thread Mip Flooding
+    run_single_test()
+    # Multi Thread Mip Flooding
+    run_multi_test()
+
 
 ```
 ## Statistics
@@ -83,12 +99,10 @@ if __name__ == "__main__":
 
 <p align="center">
 
-  <img src="examples/batch_example.gif" width="700" alt="Texture before and after the mip flooding">
+  <img src="docs/examples/batch_example.gif" width="700" alt="Texture before and after the mip flooding">
 
 </p>
 
 ## What's next?
-
-* Release a version with its own setup installer. 
+ 
 * Support for Packed Textures with Alpha Channel.
-* Selective Mip Flooding for Specific Channels.
