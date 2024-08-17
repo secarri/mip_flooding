@@ -24,13 +24,13 @@ def run_batch_mip_flood(files: List[str], output_dir: str, input_color_pattern: 
     From doc: ""If max_workers is None or not given, it will default to the number of processors on the machine,
     multiplied by 5": https://docs.python.org/3.10/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor
     """
-    out_log_file = Path(os.path.join(output_dir, 'batch_mipmap_flooding.txt'))
 
     def _run_batch_mip_flood() -> None:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for file in files:
                 mask = _match_mask(file, input_color_pattern, input_mask_pattern)
+                print(mask)
                 if mask is None:
                     continue
                 file_name = file.replace(input_color_pattern, output_pattern)
