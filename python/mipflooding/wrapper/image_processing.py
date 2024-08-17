@@ -1,4 +1,4 @@
-from python.mipflooding.bin.loader import *
+from ..bin.loader import mip_flooding
 from . import image_format as imgf
 
 
