@@ -10,7 +10,7 @@ namespace ImageProcessingLibrary
 {
     public class MipFlooding
     {
-        private static Bitmap StackMipLevels(Bitmap background, int mipLevels, Bitmap color, Bitmap alpha, int originalWidth, int originalHeight, Logger logger)
+        private static Bitmap StackMipLevels(Bitmap background, int mipLevels, Bitmap color, Bitmap alpha, int originalWidth, int originalHeight, Logger logger, bool reCompositeMip0OnTop = true)
         {
             // This takes 60% of the time, maybe it can be optimized even more. 
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -41,6 +41,18 @@ namespace ImageProcessingLibrary
                 resizedAlpha.Dispose();
                 normalizedColor.Dispose();
             }
+
+            if (reCompositeMip0OnTop)
+            {
+                Bitmap composited_color = ImageProcessor.CombineColorAndAlpha(color, alpha);
+            
+                using (Graphics g = Graphics.FromImage(background))
+                {
+                    g.DrawImage(composited_color, 0, 0, maskedColor.Width, maskedColor.Height);
+                }
+
+            }
+
             color.Dispose();
             alpha.Dispose();
             maskedColor.Dispose();
